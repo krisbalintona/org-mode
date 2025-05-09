@@ -252,6 +252,13 @@ outline path may be omitted or set to ~nil~, in which case the entry
 is inserted at the top level of the target file, respecting
 ~:prepend~.
 
+*** The ~file+headline~ capture target specification now accepts omitted or nil headline
+
+~file+headline~ is a target specification in ~org-capture-templates~.
+Previously, ~file+headline~ required a headline.  Now, the headline
+may be omitted or set to ~nil~, in which case the entry is inserted at
+the top level of the target file, respecting ~:prepend~.
+
 *** Source blocks fall back to Fundamental mode
 
 Org now falls back to Fundamental mode for source blocks when the

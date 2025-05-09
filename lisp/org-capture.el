@@ -202,10 +202,16 @@ target       Specification of where the captured item should be placed.
              (id \"id of existing Org entry\")
                  File as child of this entry, or in the body of the entry
 
+             (file+headline <file-spec>)
              (file+headline <file-spec> \"node headline\")
              (file+headline <file-spec> function-returning-string)
              (file+headline <file-spec> symbol-containing-string)
-                 Fast configuration if the target heading is unique in the file
+                 Fast configuration if the target heading is unique in
+                 the file.  The entry is created under the headline
+                 specified by a string, symbol, or function.  If no
+                 headline is provided or if the headline specification
+                 is nil, the entry will be inserted at the top level of
+                 <file-spec>.
 
              (file+olp <file-spec>)
              (file+olp <file-spec> \"Level 1 heading\" \"Level 2\" ...)
@@ -491,6 +497,7 @@ you can escape ambiguous cases with a backward slash, e.g., \\%i."
 				  (const :format "" file+headline)
 				  ,file-variants
 				  (choice :tag "Headline"
+                                          (const :tag "Top level" nil)
 				          (string   :tag "Headline")
 				          (function :tag "Function")
 				          (variable :tag "Variable")))
@@ -1086,29 +1093,31 @@ Store them in the capture property list."
 	    (org-capture-put-target-region-and-position)
 	    (goto-char position))
 	   (_ (error "Cannot find target ID \"%s\"" id))))
-	(`(file+headline ,path ,headline)
-	 (set-buffer (org-capture-target-buffer path))
-	 ;; Org expects the target file to be in Org mode, otherwise
-	 ;; it throws an error.  However, the default notes files
-	 ;; should work out of the box.  In this case, we switch it to
-	 ;; Org mode.
-	 (unless (derived-mode-p 'org-mode)
-	   (org-display-warning
-	    (format "Capture requirement: switching buffer %S to Org mode"
-		    (current-buffer)))
-	   (org-mode))
-	 (org-capture-put-target-region-and-position)
-	 (widen)
-	 (goto-char (point-min))
-         (setq headline (org-capture-expand-headline headline))
-	 (if (re-search-forward (format org-complex-heading-regexp-format
-					(regexp-quote headline))
-				nil t)
-	     (forward-line 0)
-	   (goto-char (point-max))
-	   (unless (bolp) (insert "\n"))
-	   (insert "* " headline "\n")
-	   (forward-line -1)))
+	(`(file+headline ,path . ,headline-spec)
+         (let ((headline (org-capture-expand-headline (car headline-spec))))
+           (if (null headline)
+               (funcall set-target-to-file path)
+             (set-buffer (org-capture-target-buffer path))
+             ;; Org expects the target file to be in Org mode,
+             ;; otherwise it throws an error.  However, the default
+             ;; notes files should work out of the box.  In this case,
+             ;; we switch it to Org mode.
+             (unless (derived-mode-p 'org-mode)
+               (org-display-warning
+                (format "Capture requirement: switching buffer %S to Org mode"
+                        (current-buffer)))
+               (org-mode))
+             (org-capture-put-target-region-and-position)
+             (widen)
+             (goto-char (point-min))
+             (if (re-search-forward (format org-complex-heading-regexp-format
+                                            (regexp-quote headline))
+                                    nil t)
+                 (forward-line 0)
+               (goto-char (point-max))
+               (unless (bolp) (insert "\n"))
+               (insert "* " headline "\n")
+               (forward-line -1)))))
         (`(file+olp ,path . ,outline-path)
 	 (let* ((expanded-file-path (org-capture-expand-file path))
                 (expanded-olp (apply #'org-capture-expand-olp expanded-file-path outline-path)))
@@ -1248,16 +1257,20 @@ Store them in the capture property list."
 
 (defun org-capture-expand-headline (headline)
   "Expand functions, symbols and headline names for HEADLINE.
-When HEADLINE is a function, call it.  When it is a variable, return
-its value.  When it is a string, return it.  In any other case, signal
-an error."
-  (let* ((final-headline (cond ((stringp headline) headline)
-                               ((functionp headline) (funcall headline))
-                               ((and (symbolp headline) (boundp headline))
-                                (symbol-value headline))
-                               (t nil))))
-    (or final-headline
-        (error "org-capture: Invalid headline target: %S" headline))))
+Return a string representing a headline.
+
+The behavior of this function is as follows:
+- When HEADLINE is a function, call it.
+- When it is a variable, return its value.
+- When it is a string, return that string.
+- When HEADLINE is nil, return nil.
+In any other case, signal an error."
+  (cond ((null headline) nil)
+        ((stringp headline) headline)
+        ((functionp headline) (funcall headline))
+        ((and (symbolp headline) (boundp headline))
+         (symbol-value headline))
+        (t (error "org-capture: Invalid headline target: %S" headline))))
 
 (defun org-capture-expand-olp (file &rest olp)
   "Expand functions, symbols and outline paths in FILE for OLP.
