@@ -1083,6 +1083,48 @@ before\nglobal-before\nafter\nglobal-after"
               (org-capture nil "t")
               (buffer-string))))))
 
+(ert-deftest test-org-capture/org-capture-expand-headline ()
+  "Test `org-capture-expand-headline'."
+  ;; `org-capture-expand-headline' should return nil when headline is
+  ;; nil
+  (should
+   (equal
+    nil
+    (let ((file (make-temp-file "org-test")))
+      (unwind-protect
+          (org-capture-expand-headline nil)
+        (delete-file file)))))
+  ;; `org-capture-expand-headline' should return headline if it is a
+  ;; string
+  (should
+   (equal
+    "A"
+    (let ((file (make-temp-file "org-test")))
+      (unwind-protect
+          (org-capture-expand-headline "A")
+        (delete-file file)))))
+  ;; `org-capture-expand-headline' should evaluate headline if it is a
+  ;; function and return its value
+  (should
+   (equal
+    "A"
+    (let ((file (make-temp-file "org-test")))
+      (unwind-protect
+          (org-capture-expand-headline (lambda () "A"))
+        (delete-file file)))))
+  ;; `org-capture-expand-headline' should return the value of headline
+  ;; if it is a symbol
+  (should
+   (equal
+    "A"
+    (let ((file (make-temp-file "org-test")))
+      (unwind-protect
+          (progn
+            (setq temp "A")
+            (org-capture-expand-headline 'temp))
+        (makunbound 'temp)
+        (delete-file file))))))
+
 (ert-deftest test-org-capture/org-capture-expand-olp ()
   "Test `org-capture-expand-olp'."
   ;; `org-capture-expand-olp' accepts inlined outline path.
