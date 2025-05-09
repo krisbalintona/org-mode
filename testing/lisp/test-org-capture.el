@@ -1010,7 +1010,7 @@ before\nglobal-before\nafter\nglobal-after"
               (buffer-string))))))
 
 (ert-deftest test-org-capture/org-capture-expand-olp ()
-  "Test org-capture-expand-olp."
+  "Test `org-capture-expand-olp'."
   ;; `org-capture-expand-olp' accepts inlined outline path.
   (should
    (equal
@@ -1018,6 +1018,15 @@ before\nglobal-before\nafter\nglobal-after"
     (let ((file (make-temp-file "org-test")))
       (unwind-protect
           (org-capture-expand-olp file "A" "B" "C")
+        (delete-file file)))))
+  ;; `org-capture-expand-olp' should return nil if the outline path is
+  ;; nil
+  (should
+   (equal
+    nil
+    (let ((file (make-temp-file "org-test")))
+      (unwind-protect
+          (org-capture-expand-olp file nil)
         (delete-file file)))))
   ;; The current buffer during the funcall of the lambda is the temporary
   ;; test file.

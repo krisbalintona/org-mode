@@ -207,21 +207,30 @@ target       Specification of where the captured item should be placed.
              (file+headline <file-spec> symbol-containing-string)
                  Fast configuration if the target heading is unique in the file
 
+             (file+olp <file-spec>)
              (file+olp <file-spec> \"Level 1 heading\" \"Level 2\" ...)
              (file+olp <file-spec> function-returning-list-of-strings)
              (file+olp <file-spec> symbol-containing-list-of-strings)
-                 For non-unique headings, the full outline path is safer
+                 For non-unique headings, the full outline path is
+                 safer.  The entry is created at the outline path (a
+                 list of strings denoting headlines).  If no outline
+                 path is specified or if the outline path specification
+                 is nil, the entry will be inserted at the end of
+                 <file-spec> on top level.
 
              (file+regexp  <file-spec> \"regexp to find location\")
                  File to the entry matching regexp
 
+             (file+olp+datetree <file-spec>)
              (file+olp+datetree <file-spec> \"Level 1 heading\" ...)
              (file+olp+datetree <file-spec> function-returning-list-of-strings)
              (file+olp+datetree <file-spec> symbol-containing-list-of-strings)
-                 Will create a heading in a date tree for today's date.
-                 If no heading is given, the tree will be on top level.
-                 To prompt for date instead of using TODAY, use the
-                 :time-prompt property.  To create a week-tree, use the
+                 Will create an entry in a date tree for today's date.
+                 The tree will be inserted at the end of <file-spec> on
+                 top level if no outline path is given or if the outline
+                 path specification is nil.  To prompt for date instead
+                 of using TODAY, use the :time-prompt property.  To
+                 create a week-tree, use the
                  :tree-type property.
 
              (file+function <file-spec> function-finding-location)
@@ -1065,8 +1074,19 @@ Store them in the capture property list."
 	   (forward-line -1)))
 	(`(file+olp ,path . ,(and outline-path (guard outline-path)))
 	 (let* ((expanded-file-path (org-capture-expand-file path))
-                (m (org-find-olp (cons expanded-file-path
-				       (apply #'org-capture-expand-olp expanded-file-path outline-path)))))
+                (expanded-olp (apply #'org-capture-expand-olp expanded-file-path outline-path))
+                ;; Vary behavior depending on whether expanded-olp is
+                ;; nil or non-nil.  If expanded-olp is non-nil, then
+                ;; create the entry at that olp.  If expanded-olp is
+                ;; nil (no olp is provided), then create the entry at
+                ;; the end of the expanded-file-path
+                (m (if expanded-olp
+                       (org-find-olp (cons expanded-file-path expanded-olp))
+                     ;; Returning a marker pointing to the end of the
+                     ;; buffer (widening first) causes new entry to be
+                     ;; created there
+                     (set-buffer (org-capture-target-buffer expanded-file-path))
+                     (save-restriction (widen) (point-max-marker)))))
 	   (set-buffer (marker-buffer m))
 	   (org-capture-put-target-region-and-position)
 	   (widen)
@@ -1086,12 +1106,20 @@ Store them in the capture property list."
 	   (setq target-entry-p
 		 (and (derived-mode-p 'org-mode) (org-at-heading-p)))))
 	(`(file+olp+datetree ,path . ,outline-path)
-	 (let ((m (if outline-path
-		      (let ((expanded-file-path (org-capture-expand-file path)))
-                        (org-find-olp (cons expanded-file-path
-					    (apply #'org-capture-expand-olp expanded-file-path outline-path))))
-		    (set-buffer (org-capture-target-buffer path))
-		    (point-marker))))
+         (let* ((expanded-file-path (org-capture-expand-file path))
+                (expanded-olp (apply #'org-capture-expand-olp expanded-file-path outline-path))
+                ;; Vary behavior depending on whether expanded-olp is
+                ;; nil or non-nil.  If expanded-olp is non-nil, then
+                ;; create the datetree at that olp.  If expanded-olp
+                ;; is nil (no olp is provided), then create the
+                ;; datetree at the end of the expanded-file-path
+                (m (if expanded-olp
+                       (org-find-olp (cons expanded-file-path expanded-olp))
+                     (set-buffer (org-capture-target-buffer expanded-file-path))
+                     ;; Returning a marker pointing to the end of the
+                     ;; buffer (widening first) causes new entry to be
+                     ;; created there
+                     (save-restriction (widen) (point-max-marker)))))
 	   (set-buffer (marker-buffer m))
 	   (org-capture-put-target-region-and-position)
 	   (widen)
@@ -1152,7 +1180,7 @@ Store them in the capture property list."
 	       (org-today))))
 	    ;; the following is the keep-restriction argument for
 	    ;; org-datetree-find-date-create
-	    (when outline-path 'subtree-at-point))))
+            (when expanded-olp 'subtree-at-point))))
 	(`(file+function ,path ,(and function (pred functionp)))
 	 (set-buffer (org-capture-target-buffer path))
 	 (org-capture-put-target-region-and-position)
@@ -1201,20 +1229,21 @@ an error."
 
 (defun org-capture-expand-olp (file &rest olp)
   "Expand functions, symbols and outline paths in FILE for OLP.
+Return a list of strings representing an outline path (OLP) in FILE.
+
 When OLP is a function, call it with no arguments while the current
 buffer is the FILE-visiting buffer.  When it is a variable, return its
-value.  When it is a list of string, return it.  In any other case,
-signal an error."
-  (let* ((first (car olp))
-         (final-olp (cond ((not (memq nil (mapcar #'stringp olp))) olp)
-                          ((and (not (cdr olp)) (functionp first))
-                           (with-current-buffer (find-file-noselect file)
-                             (funcall first)))
-                          ((and (not (cdr olp)) (symbolp first) (boundp first))
-                           (symbol-value first))
-                          (t nil))))
-    (or final-olp
-        (error "org-capture: Invalid outline path target: %S" olp))))
+value.  When it is a list of strings, return it.  When OLP is nil,
+return nil.  In any other case, signal an error."
+  (let* ((first (car olp)))
+    (cond ((and (= 1 (length olp)) (null first)) nil)
+          ((not (memq nil (mapcar #'stringp olp))) olp)
+          ((and (not (cdr olp)) (functionp first))
+           (with-current-buffer (find-file-noselect file)
+             (funcall first)))
+          ((and (not (cdr olp)) (symbolp first) (boundp first))
+           (symbol-value first))
+          (t (error "org-capture: Invalid outline path target: %S" olp)))))
 
 (defun org-capture-expand-file (file)
   "Expand functions, symbols and file names for FILE.
